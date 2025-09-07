@@ -1,0 +1,32 @@
+---
+title: "My First Quarto Report"
+author: "Runcheng Xu"
+format: html
+editor: visual
+---
+
+Hello World!
+
+## Objective
+
+Create my first Quarto document for APEC 8221.
+
+## Data Here is a data frame of pets:
+
+```{r}
+pets <- data.frame(
+  name = c("Fido", "Whiskers", "Nemo"),
+  animal = c("Dog", "Cat", "Fish"),
+  age = c(5, 8, 2)
+)
+```
+
+## Analysis
+
+```{r}
+pets
+```
+
+```{r}
+max(pets$age)
+```
