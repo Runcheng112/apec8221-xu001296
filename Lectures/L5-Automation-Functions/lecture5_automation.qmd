@@ -1,0 +1,1097 @@
+---
+title: "Lecture 5: Automation – Writing Functions"
+subtitle: "APEC 8221: Programming for Econometrics"
+author: "Ali Joglekar"
+date: "September 16, 2025"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    number-sections: true
+    code-fold: show
+    code-tools: true
+    theme: cosmo
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+  eval: true
+  echo: true
+editor: visual
+---
+
+# Today's Mission
+
+Today we're focusing on **writing functions** to eliminate repetitive code. You'll learn the DRY principle and basic iteration techniques that make your research more efficient and professional.
+
+**Why functions matter:** If you're copy-pasting code with minor modifications, you're doing it wrong. Functions eliminate repetition, reduce errors, and make your code reusable.
+
+# The DRY Principle & Function Basics (`I Do`)
+
+## What is DRY?
+
+**DRY = "Don't Repeat Yourself"**
+
+Let me show you with a real example. You're analyzing unemployment by region:
+
+```{r}
+#| label: setup-data
+
+library(tidyverse)
+
+# Simulate unemployment data
+set.seed(123)
+unemployment_data <- data.frame(
+  year = rep(2000:2020, 4),
+  region = rep(c("Northeast", "Southeast", "Midwest", "West"), each = 21),
+  unemployment_rate = c(
+    rnorm(21, 5.2, 1.2),  # Northeast
+    rnorm(21, 6.1, 1.5),  # Southeast  
+    rnorm(21, 5.8, 1.4),  # Midwest
+    rnorm(21, 5.5, 1.3)   # West
+  )
+)
+```
+
+::: callout-tip
+## `set.seed()`
+
+-   Set a seed to ensure reproducibility when using functions that involve random number generation (e.g., `rnorm()`, `runif()`, `sample()`).
+
+-   With the same seed, these functions will produce the exact same sequence of "random" numbers each time the code is executed
+
+-   Any integer can be used as the seed value
+
+```{r}
+#| label: set-seed
+
+# Set the seed to 123
+set.seed(123)
+
+# Generate a sequence of 5 random normal numbers
+random_numbers_1 <- rnorm(5)
+print(random_numbers_1)
+
+# Set the same seed again
+set.seed(123)
+
+# Generate another sequence of 5 random normal numbers
+random_numbers_2 <- rnorm(5)
+print(random_numbers_2)
+
+# Set a different seed
+set.seed(1234)
+
+# Generate a sequence of 5 random normal numbers
+random_numbers_3 <- rnorm(5)
+print(random_numbers_3)
+```
+:::
+
+### The Bad Way (Copy-Paste)
+
+```{r}
+#| label: bad-way
+
+# Northeast analysis
+northeast_data <- unemployment_data %>% 
+  filter(region == "Northeast")
+ne_mean <- mean(northeast_data$unemployment_rate)
+ne_sd <- sd(northeast_data$unemployment_rate)
+paste("Northeast: Mean =", round(ne_mean, 2), "SD =", round(ne_sd, 2), sep = " ")
+
+# Southeast analysis  
+southeast_data <- unemployment_data %>% 
+  filter(region == "Southeast")
+se_mean <- mean(southeast_data$unemployment_rate)
+se_sd <- sd(southeast_data$unemployment_rate)
+paste("Southeast: Mean =", round(se_mean, 2), "SD =", round(se_sd, 2), sep = " ")
+
+# This is getting tedious...
+```
+
+### The Good Way (Function)
+
+```{r}
+#| label: good-way
+
+# Write once, use everywhere
+analyze_region <- function(data, region_name) {
+  result <- data %>% 
+    filter(region == region_name) %>%
+    summarise(
+      mean = mean(unemployment_rate),
+      sd = sd(unemployment_rate)
+    )
+  
+  return(result)
+}
+
+# Use for all regions
+regions <- c("Northeast", "Southeast", "Midwest", "West")
+for (region in regions) {
+  result <- analyze_region(unemployment_data, region)
+  cat(region, ": Mean = ", round(result$mean, 2), 
+      ", SD = ", round(result$sd, 2), "\n", sep="")
+}
+```
+
+::: callout-tip
+## `print()` versus `cat()`: How They Display Text
+
+**`print()`** shows R objects with extra formatting:
+
+```{r}
+#| label: print-text
+
+print("Hello world") 
+print(c("apple", "banana"))   
+```
+
+**`cat()`** displays raw text, no extra formatting:
+
+```{r}
+#| label: cat-text
+
+cat("Hello world\n") 
+cat("apple", "banana") 
+```
+
+-   `print()` is for showing R objects (with formatting)
+-   `cat()` is for displaying clean text output – great for presenting results from functions
+    -   `\n` represents the newline character
+:::
+
+## Function Anatomy
+
+An R function is an object that does something for you.
+
+Parts of a function:
+
+1.  **Name:** they are R objects
+
+2.  **Arguments:** the inputs, which are other R objects
+
+3.  **Body:** the code that does the work
+
+4.  **Return:** the planned result of all that work
+
+    ➔ Will automatically return the last evaluated expression, but it's still a good habit to use `return()` for explicitness
+
+```{r}
+#| label: function-anatomy
+#| eval: false
+
+function_name <- function(argument1, argument2 = default) {
+  # Do the work
+  result <- some_calculation(argument1, argument2)
+  return(result)
+}
+```
+
+::: callout-important
+**When to write functions:** If you copy-paste code 3+ times, write a function instead.
+:::
+
+## How R Gobbles Your Code
+
+1.  **Line breaks:**
+
+    When R is reading code and gets to the end of the line,
+
+    -   It does what the line says if it has accumulated a correct and complete statement.
+
+    -   Otherwise it keeps reading on the next line. To continue a statement on the next line,
+
+        -   End with a comma, `+`, `-`, `*`, `/`, etc.
+        -   Or leave parentheses unclosed
+
+2.  **Expression blocks (compound expressions):**
+
+    -   When R sees a left brace, `{`, it gobbles up the code, but does not start evaluation until it sees a matching right brace, `}`.
+    -   Then it evaluates everything and returns whatever the last line produces.
+
+# Live Demo: Basic Iteration (`I Do`)
+
+Let's build a function and apply it using different iteration approaches:
+
+```{r}
+#| label: demo-data
+
+# Economic growth data
+set.seed(456)
+countries <- c("Germany", "France", "Italy", "Spain")
+years <- 2015:2020
+
+gdp_data <- expand.grid(country = countries, year = years) %>%
+  arrange(country, year) %>%
+  group_by(country) %>%
+  mutate(
+    gdp_per_capita = 25000 * (1.02^(year - 2015)) * (1 + rnorm(n(), 0, 0.02))
+  ) %>%
+  ungroup()
+
+head(gdp_data, 8)
+```
+
+## Write the Function
+
+```{r}
+#| label: demo-function
+
+calculate_growth_stats <- function(data, country_name) {
+  country_data <- data %>%
+    filter(country == country_name) %>%
+    arrange(year) %>%
+    mutate(growth_rate = (gdp_per_capita / lag(gdp_per_capita) - 1) * 100)
+  
+  avg_growth <- mean(country_data$growth_rate, na.rm = TRUE)
+  
+  return(avg_growth)
+}
+
+# Test it
+germany_result <- calculate_growth_stats(gdp_data, "Germany")
+cat("Germany average growth:", round(germany_result, 2), "%\n")
+
+italy_result <- calculate_growth_stats(gdp_data, "Italy")
+cat("Italy average growth:", round(italy_result, 2), "%\n")
+```
+
+## What Happens in a Function Stays in a Function
+
+Without taking special steps, any object created inside the function disappears when the function concludes.
+
+```{r}
+#| label: inside-fxn
+#| error: true
+
+# Try to print the avg_growth object from our calculate_growth_stats function
+avg_growth
+
+# What's in the global environment? 
+# No `avg_growth` 
+ls()
+```
+
+If you say `Z <- f(Z)`, the value of `Z` is not changed by `f()`, but by `<-`. Changing `Z` inside the function has no effect on `Z` outside the function.
+
+## Three Ways to Apply It
+
+### Method 1: `for` Loop
+
+`countries_list` is a vector and `cntr` takes on each of its value during the loop. In each iteration, the body of the function is evaluated and the result is stored in `growth_summary`
+
+```{r}
+#| label: demo-for-loop
+
+# extract vector of country names (could have also just used `countries`)
+countries_list <- unique(gdp_data$country)
+
+# create shell for data results
+growth_summary <- data.frame(country = character(), avg_growth = numeric())
+
+# 
+# will evaluate the body of the loop iteratively over each item 
+#   in `countries_list`using cntr = countries_list[1], 
+#   then cntr = countries_list[2], ..., cntr = countries_list[n]
+#   where n = length(countries_list) --> 4
+#
+#     countries_list[1] == "Germany"
+#     countries_list[2] == "France"
+#     countries_list[3] == "Italy"
+#     countries_list[4] == "Spain"
+
+for (cntr in countries_list) {
+  # run our calculate_growth_stats function where data == gdp_data and country == cntr
+  # remember result object is a list
+  result <- calculate_growth_stats(gdp_data, cntr)
+  
+  # save results in 1x2 data.frame with country name
+  result_df <- data.frame(
+    country = cntr, 
+    avg_growth = result
+  )
+  
+  # row bind (`rbind`) result_df to growth_summary object
+  # growth_summary object will continue to build up over each iteration
+  growth_summary <- rbind(growth_summary, result_df)
+}
+
+print(growth_summary)
+```
+
+### Method 2: `lapply`/`sapply`
+
+`lapply(X, FUN, ...)`
+
+1.  `X` is a list, `FUN` is a function.
+2.  Translation: apply `FUN` to each element of `X`.
+    -   `lapply(DF, sd)` → list of the standard deviation of each variable in `DF`.
+    -   In each iteration R does `sd(DF[[j]])` (`j` is what changes.)
+3.  `lapply` always returns a list.
+4.  **Problem:** What if some variables have `NA` values? The `...` argument is there to let you provide any extra arguments that `FUN` needs.
+    -   `lapply(DF, sd, na.rm=TRUE)` → In each iteration
+
+```{r}
+#| label: demo-lapply
+
+# lapply returns list of single values
+growth_list <- lapply(countries_list, function(country) {
+  calculate_growth_stats(gdp_data, country)
+})
+growth_list
+
+unlist(growth_list) # returns a named vector
+```
+
+`sapply(X, FUN, ...)`
+
+1.  `lapply` always returns a list, but often a vector would be more convenient.
+2.  `sapply` converts the list to a more convenient object (if it makes sense).
+    -   If each item in the list has length 1 and all are the same type, `sapply` returns a vector. Example: `sapply(DF, sd, na.rm=TRUE)`
+    -   Otherwise things can be more complicated, so CHECK.
+
+```{r}
+#| label: demo-sapply
+
+# sapply extracts and simplifies
+growth_rate <- sapply(countries_list, function(country) {
+  calculate_growth_stats(gdp_data, country)
+})
+growth_rate
+```
+
+If we want to get a format similar to the output of our `for` loop above:
+
+```{r}
+#| demo-format
+
+# Convert to data frame
+growth_summary <- data.frame(
+  country = countries_list,
+  growth_rate = growth_rate
+)
+
+print(growth_summary)
+```
+
+::: callout-tip
+## Anonymous (lambda) Functions
+
+These are functions that are defined, but not assigned a name
+
+They are usually used with the `*apply` functions.
+
+**Example:** Count the number of NAs in every variable of a data frame
+
+```{r}
+#| label: lamda-fxn
+#| eval: false
+
+sapply(DF, function(x){sum(is.na(x))})
+```
+
+A recent version of R introduced `\(x)` as a synonym for `function(x)`.
+
+```{r}
+#| label: lamda-fxn2
+#| eval: false
+
+sapply(DF, \(x){sum(is.na(x))})
+```
+
+1.  R passes the anonymous function one column at a time
+2.  The function returns a count of NAs
+3.  `sapply` assembles those counts into nice little vector
+4.  The function disappears
+:::
+
+### Method 3: `apply` (for matrices)
+
+```{r}
+#| label: demo-matrix-apply
+
+# Create a simple matrix from our GDP data
+# Just use the first few countries and years for simplicity
+cntrs <- c("Germany", "France", "Italy")
+yrs <- gdp_data %>% 
+  filter(year >=2015) %>%
+  pull(year) %>%
+  unique()
+
+gdp_subset <- gdp_data %>%
+  filter(country %in% cntrs, year %in% yrs) %>%
+  arrange(country, year) %>%  # Make sure data is ordered properly
+  select(gdp_per_capita) %>%
+  pull() %>%  # Extract the vector
+  matrix(nrow = 6, ncol = 3)  # 6 years, 3 countries
+gdp_subset
+
+# Add column & row names for clarity
+colnames(gdp_subset) <- cntrs
+rownames(gdp_subset) <- yrs
+gdp_subset
+
+# apply() works on matrix margins: 1 = rows
+year_means <- apply(gdp_subset, 1, mean, na.rm = TRUE)  # Row means
+print(round(year_means, 0))
+
+# apply() works on matrix margins: 2 = columns
+country_means <- apply(gdp_subset, 2, mean, na.rm = TRUE)  # Column means
+print(round(country_means, 0))
+```
+
+## Quick Comparison
+
+| Method | Best for | When to use |
+|----|----|----|
+| **`for` loops** | Learning, debugging, complex logic | Always a good choice |
+| **`lapply`/`sapply`** | Lists/vectors, simple operations | Base R workflows |
+| **`apply`** | Matrices/arrays | Econometric results, correlation matrices |
+
+# Debugging Interlude: Function Problems
+
+Let's see the most common function mistakes:
+
+## Error 1: Syntax errors (unmatched parentheses / braces)
+
+```{r}
+#| label: debugging-functions1
+#| error: true
+
+bad_function <- function(x) {
+  result <- x * 2
+  return(result)
+
+good_function <- function(x) {
+  result <- x * 2
+  return(result)
+}
+```
+
+## Error 2: Wrong number of arguments
+
+```{r}
+#| label: debugging-functions2
+#| error: true
+
+calculate_growth <- function(start_value, end_value, years) {
+  ((end_value / start_value)^(1/years) - 1) * 100
+}
+
+calculate_growth(100, 150)  # Missing 3rd 'years' argument
+```
+
+## Error 3: Variable scope - objects not found outside function
+
+```{r}
+#| label: debugging-functions3
+#| error: true
+
+# Create simple test data
+my_data <- data.frame(
+  value = c(10, 15, NA, 20, 25, NA, 30)
+)
+
+process_data <- function(data) {
+  cleaned_data <- data %>% filter(!is.na(value))
+  summary_stats <- mean(cleaned_data$value)
+  return(summary_stats)
+}
+
+result <- process_data(my_data)
+
+# Cannont access variables created inside the function
+print(cleaned_data)
+print(summary_stats)
+```
+
+**Your debugging checklist**
+
+1.  **COUNT** parentheses and braces - they must match
+2.  **CHECK** function arguments - provide all required parameters
+3.  **REMEMBER** scope - variables inside functions aren't available outside
+4.  **TEST** with simple inputs first
+
+# Guided Practice: Building Together (`We Do`)
+
+Let's build a function to calculate different types of growth rates:
+
+```{r}
+#| label: we-do-setup
+
+# Sample data
+economic_data <- data.frame(
+  year = 2015:2020,
+  gdp = c(20000, 20500, 21200, 21800, 22100, 22900),
+  employment = c(148, 151, 153, 156, 158, 160)
+)
+
+head(economic_data)
+```
+
+## Interpret Growth Function Together
+
+This function calculates either simple percentage change or compound annual growth rate, with built-in error checking for invalid inputs.
+
+Let's unpack the function line-by-line. What should this function do?
+
+```{r}
+#| label: we-do-function
+#| error: true
+
+calculate_growth <- function(start_value, end_value, years = NULL, method = "simple") {
+  
+  if (method == "simple") {
+    growth_rate <- (end_value - start_value) / start_value * 100
+  } else if (method == "cagr") {
+    if (is.null(years)) stop("Need years for CAGR")
+    growth_rate <- ((end_value / start_value)^(1/years) - 1) * 100
+  } else {
+    stop("Method must be 'simple' or 'cagr'")
+  }
+  
+  return(growth_rate)
+}
+
+# Test it
+#-------------
+
+# simple growth rate
+gdp_simple <- calculate_growth(20000, 22900)   
+cat("GDP simple growth:", round(gdp_simple, 1), "%\n")
+
+# compound annual growth rate
+gdp_cagr <- calculate_growth(20000, 22900, years = 5, method = "cagr")
+cat("GDP CAGR:", round(gdp_cagr, 1), "%\n")
+
+# average annual growth rate
+gdp_aagr <- calculate_growth(20000, 22900, years = 5, method = "aagr")  
+```
+
+::: {.callout-note collapse="true"}
+## `calculate_growth()` Function Interpretation
+
+### **Function definition:**
+
+`calculate_growth <- function(...)`
+
+Creates a function that takes four inputs:
+
+1.  `start_value`
+2.  `end_value`
+3.  `years` (optional)
+4.  `method` (defaults to "simple")
+
+### **Method selection:**
+
+-   `if (method == "simple")`
+
+    If user chose "simple" method
+
+-   `growth_rate <- (end_value - start_value) / start_value * 100`
+
+    Calculates basic percentage change
+
+-   `else if (method == "cagr")`
+
+    If user chose "cagr" method
+
+-   `if (is.null(years)) stop("Need years for CAGR")`
+
+```         
+Checks if years was provided; stops with error message if not
+```
+
+-   `growth_rate <- ((end_value / start_value)^(1/years) - 1) * 100`
+
+```         
+Calculates compound annual growth rate
+```
+
+-   `else`
+
+    If user provided any method other than "simple" or "cagr"
+
+-   `stop("Method must be 'simple' or 'cagr'")`
+
+```         
+Stops function and shows error with valid options
+```
+
+### **Return organized results:**
+
+-   `return(growth_rate)`
+
+    Sends back just the calculated growth rate number (not a list)
+:::
+
+::: callout-tip
+## Function arguments
+
+1.  **Mandatory arguments**
+
+    -   Must be provided when calling the function
+    -   Defined in the function signature without a default value
+
+    ```{r}
+    #| label: mandatory-argument
+    #| eval: false
+
+    my_function <- function(x, y) {
+          return(x + y)
+        }
+    my_function(3, 5) # x and y are mandatory
+    ```
+
+2.  **Optional arguments**
+
+    -   Default value assigned in the function definition
+    -   If user does not provide a value, the default value is used.
+    -   If user provides a value, it overrides the default
+    -   If the default value is `NULL`, the argument is not always necessary
+
+    ```{r}
+    #| label: optional-argument
+    #| eval: false
+
+    my_function <- function(x, y = 10) {
+      return(x + y)
+    }
+    my_function(3)     # Uses default y = 10
+    my_function(3, 5)  # Overrides default, y = 5
+    ```
+
+3.  **Argument matching**
+
+    -   **Positional Matching:** Arguments matched to parameters in the function definition based on their order
+
+        ➔ Default behavior when argument names not explicitly used
+
+    -   **Named Matching:** Arguments are explicitly named when calling the function (e.g., `argument_name = value`)
+
+        ➔ Allows for passing arguments in any order and improves code readability
+
+4.  **The `...` argument**
+
+    -   Allows a function to accept additional arguments that are passed on to other functions within its body
+
+        ➔ Useful for creating wrapper functions or functions that need to pass options to underlying methods
+
+    ```{r}
+    #| label: ellipse-argument
+    #| eval: false
+
+    my_wrapper <- function(data, ...) {
+          plot(data, ...) # Pass additional arguments to plot()
+        }
+    my_wrapper(iris$Sepal.Length, col = "blue", pch = 16)
+    ```
+
+5.  **Checking for Missing Arguments**
+
+    -   The missing() function can be used within a function to check if a specific argument was provided by the user or if its default value is being used.
+
+    ```{r}
+    #| label: missing-argument
+    #| eval: false
+
+    my_function <- function(x, y = 10) {
+      if (missing(y)) {
+        message("y was not provided, using default.")
+      }
+      return(x + y)
+    }
+    ```
+:::
+
+## Apply to Multiple Variables
+
+**Class question:** How can we use our function to calculate both the simple and CAGR rates for both GDP and employment with a `for` loop?
+
+```{r}
+#| label: we-do-apply
+
+# Here's our data
+economic_data
+
+# Here's our function
+calculate_growth
+
+# Define which columns to loop through
+# columns_to_analyze <- [FILL THIS IN]
+
+# Calculate the number of periods (years) for CAGR
+# It's the total number of years minus one
+# num_periods <- [FILL THIS IN]
+
+# Loop through each column name
+# for ([FILL THIS IN]) {
+#   
+#   # Get the first value of the current column
+#   start_value <- economic_data[FILL THIS IN]
+#   
+#   # Get the last value of the current column
+#   end_value <- economic_data[FILL THIS IN]
+#   
+#   # Calculate simple growth
+#   simple_rate <- [FILL THIS IN]
+#   
+#   # Calculate compound annual growth rate (CAGR)
+#   cagr_rate <- [FILL THIS IN]
+#   
+#   # Print the results for the current column
+#   cat(paste0("--- Results for '", [FILL THIS IN], "' ---\n"))
+#   cat(paste0("Simple Growth: ", round(simple_rate, 2), "%\n"))
+#   cat(paste0("CAGR: ", round(cagr_rate, 2), "%\n\n"))
+# }
+```
+
+::: callout-tip
+## Extracting Elements
+
+The double-bracket `[[ ]]` is used to extract the content of a single element from a list or data frame.
+
+Think of it as reaching into a box and pulling out the item inside. 📦➡️🍎
+
+**Key Distinction: `[[ ]]` vs. `[ ]`**
+
+The single-bracket `[ ]` **subsets** an object, and the result is always the same type as the original. The double-bracket `[[ ]]` **extracts** an element, and the result is the object *inside* that element.
+
+An easy analogy is a **train vs. a passenger**:
+
+-   `data[1]` is like selecting the first train car. You still have a (smaller) train. 🚂
+
+-   `data[[1]]` is like taking the passenger *out* of the first train car. You now have a person, not a train. 🧍
+:::
+
+::: {.callout-note collapse="true"}
+## Apply Function Solution
+
+```{r}
+#| label: we-do-apply-solution
+
+# Define which columns to loop through
+columns_to_analyze <- c("gdp", "employment")
+
+# Calculate the number of periods (years) for CAGR
+# It's the total number of years minus one
+num_periods <- length(economic_data$year) - 1
+
+# Loop through each column name
+for (col in columns_to_analyze) {
+  
+  # Get the first value of the current column
+  start_value <- economic_data[[col]][1]
+  
+  # Get the last value of the current column
+  end_value <- economic_data[[col]][length(economic_data[[col]])]
+  
+  # Calculate simple growth
+  simple_rate <- calculate_growth(start_value, end_value, method = "simple")
+  
+  # Calculate compound annual growth rate (CAGR)
+  cagr_rate <- calculate_growth(start_value, end_value, years = num_periods, method = "cagr")
+  
+  # Print the results for the current column
+  cat(paste0("--- Results for '", col, "' ---\n"))
+  cat(paste0("Simple Growth: ", round(simple_rate, 2), "%\n"))
+  cat(paste0("CAGR: ", round(cagr_rate, 2), "%\n\n"))
+}
+```
+:::
+
+# Hands-On Practice (`You Do`)
+
+## Core Task: Economic Calculator Functions
+
+Create two functions for common economic calculations using the following practice data:
+
+```{r}
+#| label: you-do-setup
+
+# Practice data
+set.seed(789)
+indicators <- data.frame(
+  country = rep(c("USA", "Germany", "Japan"), each = 6),
+  year = rep(2015:2020, 3),
+  gdp_growth = c(rnorm(6, 2.2, 0.8), rnorm(6, 1.8, 0.6), rnorm(6, 1.1, 0.4)),
+  inflation = c(rnorm(6, 2.1, 0.7), rnorm(6, 1.5, 0.5), rnorm(6, 0.8, 0.3))
+)
+
+head(indicators, 9)
+```
+
+### Core 1: Calculate Volatility Function
+
+**Write a function called `calculate_volatility()` that:**
+
+-   Takes: data, country name, variable name
+-   Returns: standard deviation of that variable for that country
+
+```{r}
+#| label: you-do-volatility
+#| eval: false
+
+calculate_volatility <- function(data, country_name, variable_name) {
+  # Your code here
+  
+}
+
+# Test it
+vol_result <- calculate_volatility(indicators, "USA", "gdp_growth")
+```
+
+::: callout-tip
+## Referring to variables within a function with `dplyr`
+
+The curly-curly `{{ }}` operator (also called the "embrace" operator) is a special tool for making your functions more user-friendly and intuitive. It lets your function accept **bare, unquoted column names**, just like `filter()` or `select()` do.
+
+Think of `{{ }}` as creating a **placeholder** in your function. It tells `dplyr`, "Wait here! The user will give you a bare column name to put in this spot."
+
+```{r}
+#| label: bare-names
+#| eval: false
+
+# The function expects 'variable_name' to be a bare name, like gdp_per_capita
+calculate_mean_embrace <- function(df, country_name, variable_name) {
+  df %>%
+    filter(country == country_name) %>%
+    # We "embrace" the variable that will hold the bare column name
+    summarise(mean_value = mean({{ variable_name }}, na.rm = TRUE))
+}
+
+# No quotes! It feels just like using summarise() interactively.
+calculate_mean_embrace(my_data, "USA", gdp_per_capita)
+```
+:::
+
+### Core 2: Country Summary Function
+
+**Write a function called `summarize_country()` that:**
+
+-   Takes: data, country name
+-   Calculates: mean and SD for both gdp_growth and inflation
+-   Prints: a nice summary
+
+```{r}
+#| label: you-do-summary
+#| eval: false
+
+summarize_country <- function(data, country_name) {
+  # Your code here
+  
+}
+
+# Test it
+summarize_country(indicators, "Germany")
+```
+
+### Core 3: Apply Your Functions
+
+**Use a `for` loop to:**
+
+1.  Calculate GDP growth volatility for all countries
+2.  Create summaries for all countries
+
+```{r}
+#| label: you-do-apply
+#| eval: false
+
+# Get a list of all unique countries
+all_countries <- unique(indicators$country)
+
+# Your for loop here
+```
+
+**Success criteria:**
+
+-   Both functions work without errors
+-   For loop applies them to all countries
+-   Output is clear and informative
+
+## Extension Activities
+
+### Extension 1: Try `lapply`
+
+If you finish early, rewrite your `for` loop using `lapply()`:
+
+```{r}
+#| label: you-do-extension
+#| eval: false
+
+# Use lapply instead of for loop
+volatility_results <- lapply(countries, function(country) {
+  calculate_volatility(indicators, country, "gdp_growth")
+})
+names(volatility_results) <- countries
+```
+
+## Working Solutions
+
+Here are the solutions—but seriously, don’t peek until you’ve wrestled with the problems. The struggle is where the learning happens.
+
+::: {.callout-note collapse="true"}
+## Core Task Solutions
+
+### Core 1: Volatility Function
+
+```{r}
+#| label: core1-solution
+
+calculate_volatility <- function(data, country_name, variable_name) {
+  volatility <- data %>%
+    filter(country == country_name) %>%
+    summarize(volatility = sd({{variable_name}}, na.rm = TRUE)) %>%
+    pull(volatility)
+  
+  return(volatility)
+}
+
+# Test
+calculate_volatility(indicators, "USA", gdp_growth)
+```
+
+**Note:** Since I used the `{{}}` operator in my function, it expects an unquoted variable name, like `gdp_growth` rather than `"gdp_growth"`. If I would like to use a concatenate and print function (`cat`) for detailing the results within my function, I need to turn my bare variable name into a string for printing.
+
+```{r}
+#| label: core1-solution2
+
+calculate_volatility <- function(data, country_name, variable_name) {
+  volatility <- data %>%
+    filter(country == country_name) %>%
+    summarize(volatility = sd({{variable_name}}, na.rm = TRUE)) %>%
+    pull(volatility)
+  
+  # Capture the bare variable name and turn it into a string for printing
+  var_name_string <- deparse(substitute(variable_name))
+  cat("=== Volatility for", country_name, "===\n")
+  cat(country_name, var_name_string, "Volatility:", round(volatility, 3), "\n")
+  cat("\n") # Add a blank line for spacing
+  
+  return(volatility)
+}
+
+# Test
+usa_gdp <- calculate_volatility(indicators, "USA", gdp_growth)
+```
+
+### Core 2: Summary Function
+
+```{r}
+#| label: core2-solution
+
+summarize_country <- function(data, country_name) {
+  # Filter the data and then summarize in a single step
+  summary_results <- data %>%
+    filter(country == country_name) %>%
+    summarize(
+      gdp_mean = mean(gdp_growth, na.rm = TRUE),
+      gdp_sd = sd(gdp_growth, na.rm = TRUE),
+      inf_mean = mean(inflation, na.rm = TRUE),
+      inf_sd = sd(inflation, na.rm = TRUE)
+    )
+
+  # Use cat() to print the results with rounded numbers
+  cat("=== Summary for", country_name, "===\n")
+  cat("GDP Growth: Mean =", round(summary_results$gdp_mean, 2), 
+      "SD =", round(summary_results$gdp_sd, 2), "\n")
+  cat("Inflation: Mean =", round(summary_results$inf_mean, 2), 
+      "SD =", round(summary_results$inf_sd, 2), "\n\n")
+  
+}
+
+# Test
+summarize_country(indicators, "Germany")
+```
+
+### **Core 3: `for` Loop**
+
+```{r}
+#| label: core3-solution
+
+# Get a list of all unique countries
+all_countries <- unique(indicators$country)
+
+# Loop to Calculate Volatility & Create Summaries
+for (country in all_countries) {
+  calculate_volatility(indicators, country, gdp_growth)
+  summarize_country(indicators, country)
+}
+
+```
+:::
+
+::: {.callout-note collapse="true"}
+## Extension Activity Solutions
+
+### Extension 1: `lapply`
+
+```{r}
+#| label: extension1-solution
+
+countries <- unique(indicators$country)
+
+# Use lapply with an anonymous (lambda) function to run both commands
+# We wrap it in invisible() because we only care about the printing from cat(),
+#   not the list of volatility values that lapply returns.
+invisible(lapply(all_countries, function(nation) {
+  # This temporary function runs for each country
+  calculate_volatility(indicators, nation, gdp_growth)
+  summarize_country(indicators, nation)
+}))
+```
+:::
+
+# Wrap-Up & Looking Ahead
+
+## What We Learned Today
+
+**Functions:**
+
+-   DRY principle: Don't repeat yourself
+-   Write once, use everywhere
+-   Test with simple inputs, add debugging prints
+
+**Basic Iteration:**
+
+-   `for` loops: explicit and reliable
+-   `lapply`/`sapply`: functional programming
+-   `apply`: for matrices (econometric contexts)
+
+## Thursday Preview: APIs + Advanced Iteration
+
+Thursday we'll learn APIs (getting data from the web) and discover why `purrr::map()` is perfect for API workflows. APIs naturally create repetitive tasks—exactly when elegant iteration shines!
+
+**Teaser:** Instead of manually downloading unemployment data for 50 states:
+
+```{r}
+#| label: api-teaser
+#| eval: false
+
+# Coming Thursday!
+get_state_unemployment <- function(state_code) {
+  # Query Bureau of Labor Statistics API
+  # Return clean data
+}
+
+# Get all states automatically  
+states <- c("CA", "TX", "NY", ...)
+unemployment_data <- map_dfr(states, get_state_unemployment)
+```
+
+## Reading for Thursday
+
+**Required reading:**
+
+-   [**An intro to APIs**](https://zapier.com/resources/guides/apis) **(Chapters 1–4)**
+
+**Suggested:**
+
+-   **R4DS Chapter 23 (Hierarchical Data)**
+-   `purrr::map()` [tutorial](https://jennybc.github.io/purrr-tutorial/ls01_map-name-position-shortcuts.html)
+-   `purrr` [cheatsheet](https://rstudio.github.io/cheatsheets/html/purrr.html?_gl=1*k1z7fk*_ga*MTkzMzExNjg1OC4xNzU0NDkwMDc5*_ga_2C0WZ1JHG0*czE3NTQ0OTAwNzkkbzEkZzEkdDE3NTQ0OTAwODkkajUwJGwwJGgw)
+-   `httr2` [get started](https://httr2.r-lib.org/articles/httr2.html)
+-   `httr2` [wrapping APIs](https://httr2.r-lib.org/articles/wrapping-apis.html)

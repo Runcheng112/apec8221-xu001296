@@ -1,0 +1,1017 @@
+---
+title: "Lecture 6: Data Acquisition - APIs & Iteration"
+subtitle: "APEC 8221: Programming for Econometrics"
+author: "Ali Joglekar"
+date: "September 18, 2025"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    toc-location: left
+    number-sections: true
+    code-fold: show
+    code-tools: true
+    theme: cosmo
+    embed-resources: true
+execute:
+  warning: false
+  message: false
+  eval: true
+  echo: true
+editor: visual
+---
+
+# Opening & Check-In
+
+## Recap: Functions from Tuesday
+
+**Quick reminder:**
+
+-   Writing custom functions to eliminate repetitive code
+-   DRY principle: "Don't Repeat Yourself"
+-   Functions have arguments, body, and return values
+-   Testing functions with simple inputs first
+
+Any lingering questions about function writing?
+
+## Today's Mission
+
+Today we're tackling **programmatic data acquisition** using APIs (Application Programming Interfaces). But here's the thing—APIs are perfect for demonstrating why iteration matters.
+
+**Real scenario:** You need quarterly GDP data for 20 countries from the Federal Reserve's database. You could manually click through 20 web pages and copy-paste data... or you could write 5 lines of R code that does it automatically.
+
+**Why this combination matters:**
+
+-   APIs naturally create repetitive tasks (same request, different parameters)
+-   You'll immediately see why `purrr::map()` is essential
+-   Both APIs and iteration are core skills for modern data acquisition
+
+By the end of today, you'll be pulling economic data from the web like a pro, automatically.
+
+# What Are APIs?
+
+## The Big Picture
+
+An **API (Application Programming Interface)** is like a waiter at a restaurant:
+
+-   **You** (the customer) want data
+-   **The API** (the waiter) takes your request to the kitchen
+-   **The database** (the kitchen) prepares your data
+-   **The API** brings back exactly what you asked for
+
+An API is just a contract:
+
+-   You follow the provider’s directions
+-   The provider commits to giving you data in a pre-specified format.
+
+APIs are everywhere in economic research:
+
+-   **FRED** (Federal Reserve Economic Data) – US economic indicators
+-   **World Bank** – International development data
+-   **Bureau of Labor Statistics** – Employment, inflation, wages
+-   **Census Bureau** – Demographics, business patterns
+
+### APIs vs. Web Scraping: Choosing the Right Tool
+
+| **When to Use APIs** | **When to Use Web Scraping** |
+|----|----|
+| ✅ Data provider offers an API | ✅ No API available for the data you need |
+| ✅ Need real-time or frequently updated data | ✅ Data is publicly displayed but not via API |
+| ✅ Large-scale, repeated data collection | ✅ One-time or small-scale data collection |
+| ✅ Provider encourages programmatic access | ✅ Website allows scraping (check robots.txt) |
+| ✅ Structured, consistent data format | ✅ Data embedded in web pages |
+
+**Bottom line:** Use the tool that fits your data source and research needs. Both have legitimate uses in modern data acquisition.
+
+### General API Structure
+
+Every API consists of a `URL` to a **domain** and a path to an **endpoint**.
+
+-   **API endpoint:** point at which API connects with the software program
+-   APIs work by sending requests for information from a web application or web server and receiving a response
+
+### **Formula for API Calls**
+
+Most professional API work follows this pattern—you build exactly the URL you need for exactly the data you want:
+
+1.  Construct Base URL
+2.  Construct Request Parameter String
+3.  Construct Full URL-Based Query
+4.  Send Query to the Endpoint
+5.  Convert Resulting Data from JSON to R-Based Object
+
+## Class Example: FRED API
+
+The Federal Reserve Economic Data (FRED) API gives us access to 800,000+ economic time series. Perfect for economics research!
+
+**What we can get:**
+
+-   GDP, unemployment, inflation rates
+-   Interest rates, money supply
+-   International trade data
+-   Regional economic indicators
+
+Let's start with a single series, Gross Domestic Product, and then see why we need iteration.
+
+# Single API Request Demo (`I Do`)
+
+### Step 0: Obtain API Key (`We Do`)
+
+First we need to get an API key.
+
+-   Navigate to the St. Louis FED FRED API key webpage: <https://fred.stlouisfed.org/docs/api/api_key.html>
+
+-   Sign in or create an account
+
+-   Click the [Request or view your API keys](https://fredaccount.stlouisfed.org/apikeys) link
+
+-   Click the `+ Request API Key` button and fill out the requested information
+
+-   Copy the API key number and save it in your R environment for future reference
+
+    ```{r}
+    #| label: save-key
+
+
+    # Save FRED API key in .Renviron file, then Restart R
+    usethis::edit_r_environ()
+
+    # Store it in .Renviron as FRED_API_KEY = "your_key_here"
+    ```
+
+-   Restart R \[Session \> Restart R\] – the shortcut is `Ctrl + Shift + F10` on a Windows PC and `Command + Shift + F10` on a Mac
+
+Now you can load your API key into your workspace for the lecture
+
+```{r}
+#| label: load-api-key
+
+# Secure API key storage – load from .Renviron file
+fred_key <- Sys.getenv("FRED_API_KEY")
+
+
+# For demo purposes, checking if key is available
+if (fred_key == "") {
+  cat("Note: FRED API key not found in .Renviron file\n")
+  cat("Get a free key at: https://fred.stlouisfed.org/docs/api/api_key.html\n")
+  fred_key <- "demo_key_placeholder"
+}
+```
+
+### Step 1: Construct Base URL
+
+```{r}
+#| label: base-url
+
+# Step 1: Construct Base URL for FRED API
+url_domain <- "https://api.stlouisfed.org/fred/"    # The API's address
+url_endpoint <- "series/observations"               # What type of data we want
+url_base <- paste0(url_domain, url_endpoint)        # Combine the two
+
+cat("Base API URL:", url_base, "\n")
+```
+
+### Step 2: Construct Request Parameter String
+
+This approach is standard across virtually all APIs—you specify exactly what you want rather than downloading everything and filtering later.
+
+```{r}
+#| label: parameter-string
+
+# Parameters (what specific data you want -- filters)
+# These get added after a "?" and separated by "&"
+parameters <- list(
+  series_id = "GDP",                  # Which economic indicator?
+  api_key = fred_key,                 # Your authentication
+  file_type = "json",                 # What format?
+  observation_start = "2020-01-01",   # What time period?
+  observation_end = "2023-12-31"
+)
+
+# Parameter query string: 
+param_string <- paste0(names(parameters), "=", parameters, collapse = "&")
+
+cat("Parameter Query String:", param_string, "\n")
+```
+
+### Step 3: **Construct Full URL-Based Query Manually**
+
+```{r}
+#| label: full-url-query
+
+url_query <- paste(url_base, param_string, sep = '?')
+
+cat("Full URL-Based Query:", url_query, "\n")
+```
+
+### Steps 2-3: **Construct Full URL-Based Query with `httr2`**
+
+We can automate steps 2-3 using the `httr2` package.
+
+```{r}
+#| label: build-httr-request
+
+# Our toolkit for today
+library(tidyverse)
+library(httr2)      # for making web requests
+library(jsonlite)   # for easy parsing of JSON responses
+
+# Step 2a: Set up a request to the base URL
+gdp_url <- request(url_base) %>%
+  
+  # Step 2b: Add our specific parameters (what data we want) using req_url_query()
+  req_url_query(
+    series_id = "GDP",        # We want GDP data specifically
+    api_key = fred_key,       # Our authentication key
+    file_type = "json"        # We want JSON format (easier to parse)
+  )
+
+gdp_url
+```
+
+### Step 4: Send Query to the Endpoint
+
+```{r}
+#| label: make-request
+
+# Make the request using req_perorm()
+gdp_response <- gdp_url %>% req_perform()
+
+# Check if it worked (status code 200 = success)
+cat("Status code:", resp_status(gdp_response), "\n")
+if (resp_status(gdp_response) == 200) {
+  cat("✅ Success! Data retrieved.\n")
+} else {
+  cat("❌ Something went wrong.\n")
+}
+```
+
+### Step 5: Parse the JSON Response
+
+::: callout-tip
+## Common API Response Format: JSON
+
+JavaScript Object Notation (JSON) is a javascript-based way of specifying structured data.
+
+-   It is centered around name value pairs
+-   Values can contain vectors in \[\]
+-   Objects are contained in {}
+-   Items in a vector or object are separated by ,
+-   Text is enclosed in “ ”
+
+``` json
+{"class":"APEC8991",
+ "students":[{"name":"John Doe", "grade":70},
+             {"name":"Jane Smith", "grade":99}]
+}
+```
+
+The `jsonlite` package has a handy `fromJSON()` function, where you give it a string of JSON text, and it gives you back an R list
+
+``` json
+{"class":"APEC8991",
+ "students":[{"name":"John Doe", "grade":70},
+             {"name":"Jane Smith", "grade":99}]
+}
+```
+
+becomes
+
+``` r
+list("class"="APEC8991", 
+     "students"=c(list("name"="John Doe", "grade"=70), 
+                  list("name"="Jane Smith", "grade"=99)))
+```
+:::
+
+```{r}
+#| label: parse-json
+
+# Convert resulting data from JSON to R-based object using resp_body_json()
+gdp_raw <- gdp_response %>% resp_body_json()
+
+# Look at the structure - this helps us understand how to extract data
+str(gdp_raw, max.level = 2)
+
+# The actual data is usually nested inside the JSON structure
+# FRED puts the time series data in the "observations" section
+gdp_observations <- gdp_raw$observations
+
+# Look at first few observations to understand the data format
+head(gdp_observations, 3) %>% str()
+```
+
+### Step 6: Convert to Tidy Data
+
+```{r}
+#| label: tidy-data
+
+# Extract observations element from list -- this is where our data is
+gdp_observations <- gdp_raw$observations
+
+# Look at the structure of our data
+glimpse(gdp_observations)
+
+# We have a list of data frames -- not really helpful
+# Use dplyr::bind_rows to convert a list of data frames into a single data-frame
+# bind_rows() combines each list element vertically (row-wise)
+gdp_data <- bind_rows(gdp_observations)
+gdp_data
+
+# Clean up our data
+gdp_data <- gdp_data %>% 
+  # Select columns needed
+  select(date, value) %>% 
+  # Format date & value appropriately
+  # Add series id
+  mutate(date = as.Date(date), 
+         value = as.numeric(value), 
+         series_id = "GDP") %>% 
+  # Remove missing values
+  filter(!is.na(value))
+
+
+dates <- character(length(gdp_observations))
+values <- numeric(length(gdp_observations))
+
+# Extract data from each observation
+for (i in seq_along(gdp_observations)) {
+  dates[i] <- gdp_observations[[i]]$date
+  values[i] <- as.numeric(gdp_observations[[i]]$value)
+}
+
+# Look at our clean data
+head(gdp_data)
+tail(gdp_data)
+
+# Quick plot to verify
+ggplot(gdp_data, aes(x = date, y = value)) +
+  geom_line(color = "steelblue", linewidth = 1) +
+  labs(
+    title = "US Gross Domestic Product",
+    x = "Year",
+    y = "GDP (Billions of dollars)",
+    caption = "Source: Federal Reserve Economic Data (FRED)"
+  ) +
+  theme_minimal()
+```
+
+Great! We have one economic time series. But what if we need multiple series?
+
+## The Repetition Problem
+
+Suppose we want these 5 economic indicators:
+
+-   **GDP** - Gross Domestic Product
+-   **UNRATE** - Unemployment Rate
+-   **CPIAUCSL** - Consumer Price Index
+-   **FEDFUNDS** - Federal Funds Rate -
+-   **DEXUSEU** - US/Euro Exchange Rate
+
+**The manual approach:**
+
+```{r}
+#| label: manual-approach
+#| eval: false
+
+# This is tedious and error-prone...
+gdp_url <- request(url_base) %>%
+  req_url_query(series_id = "GDP", api_key = fred_key, file_type = "json")
+gdp_response <- gdp_url %>% req_perform()
+gdp_data <- process_response(gdp_response)  # Imagine this function exists
+
+unrate_url <- request(url_base) %>%
+  req_url_query(series_id = "UNRATE", api_key = fred_key, file_type = "json")
+unrate_response <- unrate_url %>% req_perform()
+unrate_data <- process_response(unrate_response)
+
+# ... repeat 3 more times ...
+# This is exactly what functions and iteration solve!
+```
+
+There has to be a better way... and there is!
+
+## Enter Iteration with `purrr`
+
+### The Function Approach
+
+First, let's wrap our API workflow in a function:
+
+```{r}
+#| label: api-function
+
+# Now let's wrap our API workflow in a reusable function
+# This function takes a series ID and returns clean data
+
+get_fred_series <- function(series_id, api_key = fred_key) {
+  # Always let the user know what's happening
+  cat("Fetching", series_id, "...\n")
+  
+  # Step 1: Build and execute the request (same as before)
+  response <- request(url_base) %>%
+    req_url_query(
+      series_id = series_id,    # This changes for each function call
+      api_key = api_key,        # This stays the same
+      file_type = "json"        # This stays the same
+    ) %>%
+    req_perform()
+  
+  # Step 2: Check if the request worked (professional habit!)
+  if (resp_status(response) != 200) {
+    warning("Failed to get data for ", series_id)
+    return(NULL)  # Return nothing if it failed
+  }
+  
+  # Step 3: Parse the JSON (extract the data we want)
+  raw_data <- response %>% resp_body_json()
+  
+  # Step 4: Convert to clean, tidy data frame
+  # Extract observations and convert to simple data frame
+  observations <- raw_data$observations
+  
+  # Create vectors for date and value
+  dates <- character(length(observations))
+  values <- numeric(length(observations))
+  
+  for (i in seq_along(observations)) {
+    dates[i] <- observations[[i]]$date
+    values[i] <- as.numeric(observations[[i]]$value)
+  }
+  
+  # Step 5: Build final data frame
+  clean_data <- tibble(
+    date = as.Date(dates),
+    value = values,
+    series_id = series_id
+  ) %>%
+    filter(!is.na(value))  # Remove missing observations
+  
+  # Let us know what happened
+  cat("✅ Got", nrow(clean_data), "observations for", series_id, "\n")
+  return(clean_data)
+}
+
+# Test our function - this should give us clean GDP data
+test_data <- get_fred_series("GDP")
+head(test_data)
+```
+
+### The Power of `map()`: Understanding What's Happening
+
+Now we can get multiple series efficiently. But let's be clear about what `map()` is actually doing:
+
+```{r}
+#| label: map-demo
+
+# Our list of economic indicators
+economic_series <- c("GDP", "UNRATE", "CPIAUCSL", "FEDFUNDS", "DEXUSEU")
+
+# What map() does step by step:
+# Step 1: Call get_fred_series("GDP") -> returns cleaned GDP data
+# Step 2: Call get_fred_series("UNRATE") -> returns cleaned unemployment data  
+# Step 3: Call get_fred_series("CPIAUCSL") -> returns cleaned CPI data
+# Step 4: Call get_fred_series("FEDFUNDS") -> returns cleaned fed funds data
+# Step 5: Call get_fred_series("DEXUSEU") -> returns cleaned exchange rate data
+# Step 6: Combine all results into one big data frame
+
+# The manual way (to understand what we're automating):
+all_results <- list()
+for (i in seq_along(economic_series)) {
+  all_results[[i]] <- get_fred_series(economic_series[i])
+}
+# Combine results
+all_data_manual <- bind_rows(all_results)
+
+# The map() way - exact same result, cleaner code:
+all_data_map <- economic_series %>%
+  map(get_fred_series) %>%  # Apply function to each series
+  bind_rows()               # Combine all results
+
+# Look at what we got
+glimpse(all_data_map)
+
+# Quick summary
+all_data_map %>%
+  group_by(series_id) %>%
+  summarise(
+    observations = n(),
+    start_date = min(date),
+    end_date = max(date),
+    .groups = "drop"
+  )
+```
+
+**Key Point:** `map()` is making 5 separate API calls behind the scenes, one for each series. It's NOT building one giant URL with all 5 series—that's not how most APIs work.
+
+**This is exactly how professional data scientists work with APIs:**
+
+1.  Write a function that gets exactly what you need from one API call
+2.  Use `map()` to repeat that function across multiple parameters
+3.  Let `map()` handle the repetition and combining
+
+**We just retrieved 5 economic time series with clean, efficient code!**
+
+## Professional API Workflow
+
+Let's add some real-world robustness:
+
+```{r}
+#| label: professional-workflow
+
+get_fred_series_robust <- function(series_id, api_key = fred_key, delay = 1) {
+  cat("Fetching", series_id, "...\n")
+  
+  # Respect rate limits
+  Sys.sleep(delay)
+  
+  # Error handling
+  tryCatch({
+    response <- request(url_base) %>%
+      req_url_query(
+        series_id = series_id,
+        api_key = api_key,
+        file_type = "json"
+      ) %>%
+      req_perform()
+    
+    if (resp_status(response) != 200) {
+      warning("API returned status ", resp_status(response), " for ", series_id)
+      return(NULL)
+    }
+    
+    raw_data <- response %>% resp_body_json()
+    observations <- raw_data$observations
+    
+    # Simple data extraction
+    dates <- character(length(observations))
+    values <- numeric(length(observations))
+    
+    for (i in seq_along(observations)) {
+      dates[i] <- observations[[i]]$date
+      values[i] <- as.numeric(observations[[i]]$value)
+    }
+    
+    clean_data <- tibble(
+      date = as.Date(dates),
+      value = values,
+      series_id = series_id
+    ) %>%
+      filter(!is.na(value))
+    
+    cat("✅ Success:", nrow(clean_data), "observations\n")
+    return(clean_data)
+    
+  }, error = function(e) {
+    warning("Error fetching ", series_id, ": ", e$message)
+    return(NULL)
+  })
+}
+
+# Test with delay and error handling
+robust_data <- economic_series %>%
+  map(get_fred_series_robust, delay = 0.5) %>%
+  bind_rows()
+
+nrow(robust_data)
+```
+
+# Debugging Interlude: API Troubleshooting
+
+Let's see the most common API problems and how to fix them:
+
+```{r}
+#| label: debugging-apis
+#| eval: false
+
+# Problem 1: Rate limiting (HTTP 429)
+# "Too Many Requests" or status code 429
+# Solution: Add Sys.sleep(1) between requests
+
+for(i in 1:5) {
+  response <- request(url_base) %>% req_perform()
+  Sys.sleep(1)  # Wait 1 second between requests
+}
+
+# Problem 2: Authentication errors (HTTP 401) 
+# "Unauthorized" or status code 401
+# - Check your API key spelling
+# - Make sure API key hasn't expired
+# - Check if you need to register key
+
+# Problem 3: Bad requests (HTTP 400)
+# "Bad Request" or status code 400
+# - Check parameter names and values
+# - Look at API documentation again
+# - Try a simpler request first
+
+# Always check status codes before parsing:
+response <- request(url_base) %>% req_perform()
+
+if (resp_status(response) == 200) {
+  # Safe to parse data
+  data <- response %>% resp_body_json()
+} else {
+  # Handle the error
+  stop("API request failed with status: ", resp_status(response))
+}
+
+# Debugging JSON parsing:
+# Look at raw response first, then parse structure
+raw_content <- response %>% resp_body_string()
+print(raw_content)  # See the raw JSON
+
+parsed <- response %>% resp_body_json()
+str(parsed)  # See the structure
+```
+
+**Your API debugging workflow:** 1. **CHECK** status codes before parsing 2. **EXAMINE** raw response when confused 3. **START** with simple requests 4. **RESPECT** rate limits (add delays)
+
+# Guided Practice: Building Together (`We Do`)
+
+Let's work through converting a manual API workflow to an automated one.
+
+## The Challenge
+
+I want to compare economic performance across different regions. I need these FRED series:
+
+-   **GDP** - US Total
+-   **CANGDP** - California GDP
+-   **TXGDP** - Texas GDP
+-   **NYGDP** - New York GDP
+
+Let me start manually, and you help me convert it to use `map()`:
+
+```{r}
+#| label: we-do-manual
+#| eval: false
+
+# Manual approach (tedious!)
+us_gdp <- get_fred_series("GDP")
+ca_gdp <- get_fred_series("CAGDP") 
+tx_gdp <- get_fred_series("TXGDP")
+ny_gdp <- get_fred_series("NYGDP")
+
+# Manually combine
+regional_data <- bind_rows(us_gdp, ca_gdp, tx_gdp, ny_gdp)
+```
+
+**Class discussion:**
+
+1.  What's repetitive about this code?
+2.  How can we use a vector and `map()` to simplify this?
+3.  What should our vector contain?
+
+**Let's build the solution together:**
+
+```{r}
+#| label: we-do-solution
+
+# What we decided as a class:
+regional_series <- c("GDP", "CAGDP", "TXGDP", "NYGDP")
+
+# Convert to map() approach
+regional_data <- regional_series %>%
+  map(get_fred_series_robust, delay = 0.5) %>%
+  bind_rows()
+
+# Quick verification
+regional_data %>%
+  group_by(series_id) %>%
+  summarise(
+    observations = n(),
+    latest_date = max(date),
+    latest_value = last(value),
+    .groups = "drop"
+  )
+```
+
+**Discussion:** What are the advantages of the `map()` approach over manual repetition?
+
+# Hands-On Practice: Your Turn (`You Do`)
+
+## Core Task: API Parameter Practice (25 minutes)
+
+Now you'll practice the key API skills: building URLs with different parameters and using functions for automation.
+
+### Task 1: Modify API Parameters (Single Request)
+
+```{r}
+#| label: core-task-1
+#| eval: false
+
+# Practice changing API parameters to get different data
+# Get unemployment data for just the years 2020-2023
+
+unemployment_url <- request(url_base) %>%
+  req_url_query(
+    series_id = "UNRATE",           # Unemployment rate
+    api_key = fred_key,
+    file_type = "json",
+    observation_start = "___",      # Fill in start date
+    observation_end = "___"         # Fill in end date
+  )
+
+unemployment_response <- unemployment_url %>% req_perform()
+
+# Check if it worked and look at the data
+if (resp_status(unemployment_response) == 200) {
+  cat("✅ Success!\n")
+  raw_data <- unemployment_response %>% resp_body_json()
+  cat("Got", length(raw_data$observations), "observations\n")
+} else {
+  cat("❌ Failed with status:", resp_status(unemployment_response), "\n")
+}
+```
+
+### Task 2: Enhanced Function with Multiple Parameters
+
+```{r}
+#| label: core-task-2
+#| eval: false
+
+# Create a function that lets you control the date range
+get_fred_series_dates <- function(series_id, start_date, end_date, api_key = fred_key) {
+  cat("Fetching", series_id, "from", start_date, "to", end_date, "\n")
+  
+  # Build your request using the parameters
+  response <- request(url_base) %>%
+    req_url_query(
+      series_id = series_id,
+      api_key = api_key,
+      file_type = "json",
+      observation_start = start_date,
+      observation_end = end_date
+    ) %>%
+    req_perform()
+  
+  # Add error checking and data processing here
+  # (Use the same pattern from our earlier function)
+  
+  # Your code here...
+}
+
+# Test your function
+test_data <- get_fred_series_dates("GDP", "2020-01-01", "2023-12-31")
+```
+
+### Task 3: Automate Multiple API Calls
+
+```{r}
+#| label: core-task-3
+#| eval: false
+
+# Use your new function to get recent data for multiple indicators
+indicators <- c("UNRATE", "CPIAUCSL", "HOUST")
+
+# Method 1: Manual approach (understand what we're automating)
+unrate_data <- get_fred_series_dates("UNRATE", "2022-01-01", "2024-01-01")
+cpi_data <- get_fred_series_dates("CPIAUCSL", "2022-01-01", "2024-01-01")
+housing_data <- get_fred_series_dates("HOUST", "2022-01-01", "2024-01-01")
+
+# Method 2: Automated approach with map
+all_data <- indicators %>%
+  map(~ get_fred_series_dates(.x, "2022-01-01", "2024-01-01")) %>%
+  bind_rows()  # Combine results
+
+# Compare what you get - should be the same!
+```
+
+## Extension Activities
+
+### Extension 1: API Metadata Exploration
+
+Get ready for pagination by learning to read API metadata:
+
+```{r}
+#| label: extension-pagination-prep
+#| eval: false
+
+# Make a request and examine the full response structure
+response <- request(url_base) %>%
+  req_url_query(
+    series_id = "UNRATE",
+    api_key = fred_key,
+    file_type = "json",
+    limit = 100  # Only get 100 observations
+  ) %>%
+  req_perform()
+
+full_data <- response %>% resp_body_json()
+
+# Explore the metadata - what information is available?
+str(full_data, max.level = 1)
+
+# How many total observations are available?
+# How many did we actually get?
+# What parameters could you use for pagination?
+```
+
+### Extension 2: Error Handling & Logging
+
+Test your API skills with series that might not exist:
+
+```{r}
+#| label: extension-error-handling
+#| eval: false
+
+# Some of these series don't exist - can you handle the errors?
+test_series <- c("GDP", "UNRATE", "FAKE_SERIES", "INVALID123")
+
+# Modify get_fred_series_dates to return status information
+# Challenge: Make it return both success/failure info AND data when available
+```
+
+### Extension 3: Parameter Exploration
+
+Try different API parameters to see what's possible:
+
+```{r}
+#| label: extension-parameters
+#| eval: false
+
+# Experiment with other FRED API parameters:
+# - frequency: "a" (annual), "q" (quarterly), "m" (monthly)
+# - units: "lin" (levels), "chg" (change), "pch" (percent change)
+
+# Example: Get GDP in percent change format
+response <- request(url_base) %>%
+  req_url_query(
+    series_id = "GDP",
+    api_key = fred_key,
+    file_type = "json",
+    units = "pch"  # Percent change
+  ) %>%
+  req_perform()
+
+# Compare this to the raw levels data - what's different?
+```
+
+## Working Solutions
+
+Here are the solutions—but seriously, don't peek until you've wrestled with the problems!
+
+::: {.callout-note collapse="true"}
+## Core Task Solutions
+
+### Task 1 Solution:
+
+```{r}
+#| label: solution-task1
+
+unemployment_url <- request(url_base) %>%
+  req_url_query(
+    series_id = "UNRATE",
+    api_key = fred_key,
+    file_type = "json",
+    observation_start = "2020-01-01",
+    observation_end = "2023-12-31"
+  )
+
+unemployment_response <- unemployment_url %>% req_perform()
+
+if (resp_status(unemployment_response) == 200) {
+  cat("✅ Success!\n")
+  raw_data <- unemployment_response %>% resp_body_json()
+  cat("Got", length(raw_data$observations), "observations\n")
+} else {
+  cat("❌ Failed with status:", resp_status(unemployment_response), "\n")
+}
+```
+
+### Task 2 Solution:
+
+```{r}
+#| label: solution-task2
+
+get_fred_series_dates <- function(series_id, start_date, end_date, api_key = fred_key) {
+  cat("Fetching", series_id, "from", start_date, "to", end_date, "\n")
+  
+  response <- request(url_base) %>%
+    req_url_query(
+      series_id = series_id,
+      api_key = api_key,
+      file_type = "json",
+      observation_start = start_date,
+      observation_end = end_date
+    ) %>%
+    req_perform()
+  
+  if (resp_status(response) != 200) {
+    warning("Failed to get data for ", series_id)
+    return(NULL)
+  }
+  
+  raw_data <- response %>% resp_body_json()
+  observations <- raw_data$observations
+  
+  dates <- character(length(observations))
+  values <- numeric(length(observations))
+  
+  for (i in seq_along(observations)) {
+    dates[i] <- observations[[i]]$date
+    values[i] <- as.numeric(observations[[i]]$value)
+  }
+  
+  clean_data <- tibble(
+    date = as.Date(dates),
+    value = values,
+    series_id = series_id
+  ) %>%
+    filter(!is.na(value))
+  
+  cat("✅ Got", nrow(clean_data), "observations\n")
+  return(clean_data)
+}
+
+# Test the function
+test_data <- get_fred_series_dates("GDP", "2020-01-01", "2023-12-31")
+head(test_data)
+```
+
+### Task 3 Solution:
+
+```{r}
+#| label: solution-task3
+
+indicators <- c("UNRATE", "CPIAUCSL", "HOUST")
+
+# Automated approach with map
+all_data <- indicators %>%
+  map(~ get_fred_series_dates(.x, "2022-01-01", "2024-01-01")) %>%
+  bind_rows()
+
+# Summary
+all_data %>%
+  group_by(series_id) %>%
+  summarise(
+    observations = n(),
+    start_date = min(date),
+    end_date = max(date),
+    .groups = "drop"
+  )
+```
+:::
+
+# Wrap-Up & Looking Ahead
+
+## What We Learned Today
+
+**API Fundamentals:**
+
+-   APIs are structured ways to request data programmatically -
+-   Always check status codes before parsing responses -
+-   Respect rate limits and handle errors gracefully
+
+**The Power of Iteration:** -
+
+-   `map()` eliminates repetitive API calls -
+-   Functions + `purrr` = scalable data acquisition -
+-   Professional workflows include error handling and logging
+
+## Why This Actually Matters
+
+**Dissertation scenarios where you'll use these skills:**
+
+1.  **International Development Research:**
+    -   Pull World Bank data for 150+ countries automatically
+    -   No more manual Excel downloads and data alignment
+2.  **Regional Economics:**
+    -   Get county-level employment data for all US counties
+    -   Would take weeks manually, takes minutes with APIs
+3.  **Financial Economics:**
+    -   Download daily stock prices for S&P 500 companies
+    -   Update your analysis automatically when new data arrives
+
+**Professional scenarios:** - **Fed Economist:** Update quarterly forecasting models with latest data - **Consulting:** Provide clients with real-time economic dashboards\
+- **Academic Research:** Ensure your replication files actually work
+
+## Next Lecture Preview: Reshaping and Joining Data
+
+**Tuesday we tackle messy, real-world data structures:**
+
+-   **Tidy data principles** - when data isn't shaped the way you need
+-   **Reshaping** with `pivot_longer()` and `pivot_wider()`
+-   **Joining datasets** with `left_join()`, `inner_join()`, etc.
+
+**Why this follows perfectly:** APIs often return data in inconvenient formats. Tuesday you'll learn to reshape and combine that data for analysis.
+
+### Reading for Tuesday
+
+**Required:**
+
+-   **R4DS Chapter 5 (Tidy Data)** - The foundation of data reshaping
+-   **R4DS Chapter 19 (Joins)** - Combining multiple datasets
+-   **R4DS Chapter 18 (Missing Values)** - Handling real-world data issues
+
+**Suggested:**
+
+-   **tidyr cheatsheet** - Keep this handy for reshaping
+-   **ERP 6.2-6.5 (Data Carpentry)** - Professional data cleaning workflows
+
+## Assignment 2 Posted Friday
+
+**Assignment 2: Automation and API Data Acquisition**
+
+-   **Posted:** Friday, September 19 at 5 PM (or as close to that time as I can get)
+
+-   **Due:** Saturday, September 27 at 8 AM
